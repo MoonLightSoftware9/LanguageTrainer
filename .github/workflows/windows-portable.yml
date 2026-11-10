@@ -1,0 +1,80 @@
+name: Windows portable application
+
+on:
+  workflow_dispatch:
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Prepare Python environment
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          sed '/^argostranslate$/d' requirements.txt > /tmp/requirements.txt
+          .venv/bin/python -m pip install -r /tmp/requirements.txt
+          .venv/bin/python -m pip install --no-deps argostranslate
+          .venv/bin/python -c 'import shutil, sysconfig; from pathlib import Path; shutil.copytree("stubs/stanza", Path(sysconfig.get_paths()["purelib"]) / "stanza", dirs_exist_ok=True)'
+
+      - name: Check user creation and datetime storage
+        run: .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Generate transferable Windows source bundle
+        run: ./prepare_win64_build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: win64-build-source
+          path: win64_build
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    needs: prepare
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: win64-build-source
+          path: win64_build
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/pip/Cache
+          key: windows-pip-${{ hashFiles('win64_build/backend/requirements.txt') }}
+          restore-keys: windows-pip-
+
+      - name: Build portable application
+        shell: pwsh
+        run: ./win64_build/build.ps1 -Version 0.4.2
+
+      - name: Check packaged Python and desktop imports
+        shell: pwsh
+        working-directory: win64_build/.build/package/LanguageTrainer-windows-x64-0.4.2/backend
+        run: |
+          ./python.exe -c "import webview, clr, dictapp; print('Portable imports OK')"
+          if ($LASTEXITCODE -ne 0) { throw "Portable import check failed." }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LanguageTrainer-windows-x64-0.4.2
+          path: win64_build/dist/LanguageTrainer-windows-x64-0.4.2.zip
+          if-no-files-found: error

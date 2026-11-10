@@ -1,0 +1,29 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LanguageTrainer",
+  "version": "0.4.2",
+  "identifier": "com.dict.typingtrainer",
+  "build": {
+    "frontendDist": "../desktop-ui"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "LanguageTrainer — starting",
+        "url": "index.html",
+        "width": 1280,
+        "height": 850,
+        "minWidth": 900,
+        "minHeight": 600,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false
+  }
+}

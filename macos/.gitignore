@@ -1,0 +1,5 @@
+.build/
+dist/
+backend/__pycache__/
+tauri/node_modules/
+tauri/src-tauri/target/

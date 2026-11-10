@@ -1,0 +1,7 @@
+# Large offline assets; run git lfs install before the first git add.
+/SoundEn.lsa filter=lfs diff=lfs merge=lfs -text
+/data/argos-translate/packages/translate-en_ru-1_9/model/model.bin filter=lfs diff=lfs merge=lfs -text
+/dictionaries.db filter=lfs diff=lfs merge=lfs -text
+/win64_build/resources/SoundEn.lsa filter=lfs diff=lfs merge=lfs -text
+/win64_build/resources/dictionaries.db filter=lfs diff=lfs merge=lfs -text
+/win64_build/seed_data/argos-translate/packages/translate-en_ru-1_9/model/model.bin filter=lfs diff=lfs merge=lfs -text

@@ -1,0 +1,21 @@
+{
+  "dependencies": [
+    {
+      "id": "vue",
+      "kind": "browser-js",
+      "package": "vue",
+      "version": "3.5.38",
+      "local_path": "vendor/vue/vue.global.prod.js",
+      "latest_url": "https://registry.npmjs.org/vue/latest",
+      "download_url_template": "https://unpkg.com/vue@{version}/dist/vue.global.prod.js"
+    },
+    {
+      "id": "argos-en-ru",
+      "kind": "argos-translate-package",
+      "from_code": "en",
+      "to_code": "ru",
+      "local_path": "tmp/argos-translate/packages",
+      "managed_by": "argostranslate"
+    }
+  ]
+}

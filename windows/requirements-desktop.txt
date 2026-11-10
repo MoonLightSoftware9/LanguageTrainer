@@ -1,0 +1,2 @@
+pywebview>=6,<7
+distlib>=0.4,<1

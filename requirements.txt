@@ -1,0 +1,17 @@
+alembic
+beautifulsoup4
+lxml
+nltk
+pystardict
+sqlmodel>=0.0.38,<0.1
+spacy
+# argostranslate runtime dependencies except stanza. The builds install
+# argostranslate with --no-deps and ship a stub 'stanza' (see stubs/stanza),
+# so torch is never pulled in. These are listed explicitly so they are still
+# installed when argostranslate is filtered out of the build install step.
+ctranslate2>=4.0,<5
+sentencepiece>=0.2.0,<0.3
+sacremoses>=0.0.53,<0.2
+minisbd
+packaging
+argostranslate

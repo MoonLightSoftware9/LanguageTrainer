@@ -1,0 +1,224 @@
+param(
+    [string]$Version = "0.4.2",
+    [switch]$SkipDependencyInstall,
+    [switch]$PackageOnly
+)
+
+$ErrorActionPreference = "Stop"
+$BundleRoot = (Resolve-Path $PSScriptRoot).Path
+$BackendRoot = Join-Path $BundleRoot "backend"
+$SourceResources = Join-Path $BundleRoot "resources"
+$SeedData = Join-Path $BundleRoot "seed_data"
+$BuildRoot = Join-Path $BundleRoot ".build"
+$VenvRoot = Join-Path $BuildRoot "venv"
+$Python = Join-Path $VenvRoot "Scripts/python.exe"
+$BackendBuild = Join-Path $BuildRoot "backend"
+$PortableName = "LanguageTrainer-windows-x64-$Version"
+$DistRoot = Join-Path $BundleRoot "dist"
+$PortableRoot = Join-Path $BuildRoot "package/$PortableName"
+$ResourcesRoot = Join-Path $PortableRoot "resources"
+$DataRoot = Join-Path $PortableRoot "data"
+
+if ($env:OS -ne "Windows_NT") {
+    throw "The portable Windows build must run on Windows."
+}
+
+New-Item -ItemType Directory -Force $BuildRoot | Out-Null
+$BuildTimer = [System.Diagnostics.Stopwatch]::StartNew()
+$script:CurrentStage = "Starting"
+$script:StageTimer = [System.Diagnostics.Stopwatch]::StartNew()
+$BuildLog = Join-Path $BuildRoot "build.log"
+$TranscriptStarted = $false
+try {
+    Start-Transcript -Path $BuildLog -Append -ErrorAction Stop | Out-Null
+    $TranscriptStarted = $true
+}
+catch { Write-Warning "Could not start build log: $_" }
+
+function Set-BuildStage([string]$Name) {
+    Write-Host ("[done] {0}: {1:N1}s" -f $script:CurrentStage, $script:StageTimer.Elapsed.TotalSeconds)
+    $script:CurrentStage = $Name
+    $script:StageTimer.Restart()
+    Write-Host ("[{0:HH:mm:ss}] {1} (total {2:N0}s)" -f (Get-Date), $Name, $BuildTimer.Elapsed.TotalSeconds) -ForegroundColor Cyan
+}
+
+try {
+Write-Host "Build log: $BuildLog"
+if (-not $PackageOnly) {
+$MachinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+$UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+$env:Path = "$MachinePath;$UserPath;$env:Path"
+
+Set-BuildStage "Checking Python environment"
+
+function Find-Python312 {
+    $Candidates = @(
+        @{ Command = "py"; Arguments = @("-3.12") },
+        @{ Command = "python"; Arguments = @() },
+        @{ Command = "python3"; Arguments = @() },
+        @{ Command = (Join-Path $env:LocalAppData "Programs/Python/Python312/python.exe"); Arguments = @() },
+        @{ Command = (Join-Path $env:ProgramFiles "Python312/python.exe"); Arguments = @() },
+        @{ Command = "C:/Python312/python.exe"; Arguments = @() }
+    )
+
+    foreach ($Candidate in $Candidates) {
+        $CommandInfo = Get-Command $Candidate.Command -ErrorAction SilentlyContinue
+        if (-not $CommandInfo) { continue }
+
+        try {
+            $Executable = $CommandInfo.Source
+            $Arguments = $Candidate.Arguments
+            $DetectedVersion = & $Executable @Arguments -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
+            if ($LASTEXITCODE -eq 0 -and $DetectedVersion -eq "3.12") {
+                return [PSCustomObject]@{
+                    Executable = $Executable
+                    Arguments = $Arguments
+                }
+            }
+        }
+        catch {
+            continue
+        }
+    }
+    return $null
+}
+
+$BootstrapPython = Find-Python312
+if (-not $BootstrapPython) {
+    throw @"
+Python 3.12 was not found. Install it, reopen PowerShell, and run build.ps1 again:
+
+./install-build-tools.ps1
+"@
+}
+
+New-Item -ItemType Directory -Force $BuildRoot, $BackendBuild | Out-Null
+
+if (-not (Test-Path $Python)) {
+    $BootstrapExecutable = $BootstrapPython.Executable
+    $BootstrapArguments = $BootstrapPython.Arguments
+    & $BootstrapExecutable @BootstrapArguments -m venv $VenvRoot
+    if ($LASTEXITCODE -ne 0) { throw "Failed to create the Python virtual environment." }
+}
+
+if (-not $SkipDependencyInstall) {
+    Set-BuildStage "Installing Python dependencies"
+    & $Python -m pip install --upgrade pip
+    if ($LASTEXITCODE -ne 0) { throw "Failed to upgrade pip." }
+
+    # Install everything except argostranslate, then install argostranslate with
+    # --no-deps so its stanza(->torch) requirement is skipped. torch (~1 GB, plus
+    # CUDA on some platforms) is never used at runtime: sentence segmentation goes
+    # through spaCy (ARGOS_CHUNK_TYPE=SPACY). A stub 'stanza' is dropped into
+    # site-packages to satisfy argostranslate's unguarded `import stanza`.
+    $Requirements = Join-Path $BackendRoot "requirements.txt"
+    $FilteredRequirements = Join-Path $BuildRoot "requirements-nostanza.txt"
+    Get-Content $Requirements |
+        Where-Object { $_ -notmatch '^\s*argostranslate\s*$' } |
+        Set-Content $FilteredRequirements
+    & $Python -m pip install -r $FilteredRequirements
+    if ($LASTEXITCODE -ne 0) { throw "Failed to install backend dependencies." }
+    & $Python -m pip install --no-deps argostranslate
+    if ($LASTEXITCODE -ne 0) { throw "Failed to install argostranslate." }
+
+    & $Python -m pip install --prefer-binary -r (Join-Path $BundleRoot "requirements-desktop.txt")
+    if ($LASTEXITCODE -ne 0) { throw "Failed to install desktop dependencies." }
+
+    # Replace any real stanza with the torch-free stub.
+    $SitePackages = & $Python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])"
+    if ($LASTEXITCODE -ne 0) { throw "Failed to resolve site-packages path." }
+    $StanzaTarget = Join-Path $SitePackages "stanza"
+    if (Test-Path $StanzaTarget) { Remove-Item -Recurse -Force $StanzaTarget }
+    Copy-Item -Recurse (Join-Path $BackendRoot "stubs/stanza") $StanzaTarget
+}
+
+Set-BuildStage "Checking desktop dependencies"
+
+# Repair desktop dependencies when upgrading an older build environment.
+& $Python -c "import importlib.util, sys; sys.exit(not all(importlib.util.find_spec(name) for name in ('webview', 'distlib')))"
+if ($LASTEXITCODE -ne 0) {
+    & $Python -m pip install --prefer-binary -r (Join-Path $BundleRoot "requirements-desktop.txt")
+    if ($LASTEXITCODE -ne 0) { throw "Failed to install desktop dependencies." }
+}
+
+Set-BuildStage "Staging Python runtime and sources"
+
+# Copy the existing Python runtime and readable sources. No freezing or C build.
+& $Python -u (Join-Path $BundleRoot "package_backend.py") $BackendRoot (Join-Path $BackendBuild "dict-backend") | Out-Host
+if ($LASTEXITCODE -ne 0) { throw "Backend staging failed." }
+
+}
+
+Set-BuildStage "Preparing clean portable directory"
+
+if (Test-Path $PortableRoot) {
+    Remove-Item -Recurse -Force $PortableRoot
+}
+New-Item -ItemType Directory -Force $DistRoot, $ResourcesRoot, $DataRoot | Out-Null
+
+$DesktopExe = Join-Path $BackendBuild "LanguageTrainer.exe"
+$BackendDist = Join-Path $BackendBuild "dict-backend"
+if (-not (Test-Path $DesktopExe)) { throw "Desktop launcher not found: $DesktopExe" }
+if (-not (Test-Path (Join-Path $BackendDist "python.exe"))) { throw "Backend standalone dist folder not found under: $BackendBuild" }
+
+$PackagingPython = $Python
+if (-not (Test-Path $PackagingPython)) { $PackagingPython = Join-Path $BackendDist "python.exe" }
+$ProgressHelper = Join-Path $BundleRoot "package_progress.py"
+function Copy-PackageTree([string]$Source, [string]$Destination) {
+    & $PackagingPython -u $ProgressHelper copy $Source $Destination | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "Copy failed: $Source -> $Destination" }
+}
+
+Set-BuildStage "Copying Python into portable application"
+Copy-Item $DesktopExe (Join-Path $PortableRoot "LanguageTrainer.exe")
+Copy-PackageTree $BackendDist (Join-Path $PortableRoot "backend")
+
+Set-BuildStage "Copying dictionaries, audio, books and interface"
+$RequiredResources = @(
+    "SoundEn.lsa", "1_star.txt", "2_star.txt", "3_star.txt",
+    "zen.txt", "thinking-fast-and-slow.txt", "docs/manual/README.md", "docs/manual/README.ru.md", "web", "vendor", "dictionaries.db"
+)
+foreach ($Item in $RequiredResources) {
+    if (-not (Test-Path (Join-Path $SourceResources $Item))) {
+        throw "Required runtime resource not found: resources/$Item"
+    }
+}
+Copy-PackageTree $SourceResources $ResourcesRoot
+
+Set-BuildStage "Copying offline translation model"
+$ArgosSeed = Join-Path $SeedData "argos-translate"
+$ArgosTarget = Join-Path $DataRoot "argos-translate"
+if (-not (Test-Path (Join-Path $ArgosSeed "packages"))) {
+    throw "Bundled Argos model not found: seed_data/argos-translate/packages"
+}
+New-Item -ItemType Directory -Force $ArgosTarget | Out-Null
+Copy-PackageTree $ArgosSeed $ArgosTarget
+
+Set-BuildStage "Copying WordNet"
+$NltkSeed = Join-Path $SeedData "nltk_data"
+if (-not (Test-Path (Join-Path $NltkSeed "corpora/wordnet.zip"))) {
+    throw "Bundled WordNet data not found: seed_data/nltk_data/corpora/wordnet.zip"
+}
+Copy-PackageTree $NltkSeed (Join-Path $ResourcesRoot "nltk_data")
+
+$Archive = Join-Path $DistRoot "$PortableName.zip"
+if (Test-Path $Archive) { Remove-Item -Force $Archive }
+Set-BuildStage "Creating ZIP archive (fast compression)"
+& $PackagingPython -u $ProgressHelper zip $PortableRoot $Archive | Out-Host
+if ($LASTEXITCODE -ne 0) { throw "ZIP creation failed." }
+if (-not (Test-Path $Archive)) { throw "Archive was not created: $Archive" }
+
+Write-Host "Portable staging directory: $PortableRoot"
+Write-Host "Archive: $Archive"
+
+Set-BuildStage "Complete"
+}
+catch {
+    Write-Host ("[FAILED] {0} after {1:N1}s: {2}" -f $script:CurrentStage, $script:StageTimer.Elapsed.TotalSeconds, $_) -ForegroundColor Red
+    Write-Host "Details: $BuildLog"
+    throw
+}
+finally {
+    Write-Host ("Total elapsed: {0:N1}s" -f $BuildTimer.Elapsed.TotalSeconds)
+    if ($TranscriptStarted) { Stop-Transcript | Out-Null }
+}
