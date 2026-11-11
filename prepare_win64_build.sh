@@ -34,6 +34,7 @@ require_file "$WINDOWS_TEMPLATE/build.ps1"
 require_file "$WINDOWS_TEMPLATE/install-build-tools.ps1"
 require_file "$WINDOWS_TEMPLATE/desktop.py"
 require_file "$WINDOWS_TEMPLATE/package_progress.py"
+require_file "$WINDOWS_TEMPLATE/runtime_audit.py"
 require_file "$WINDOWS_TEMPLATE/requirements-desktop.txt"
 
 for source_file in \

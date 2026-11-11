@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.4.2",
+    [string]$Version = "0.5.0",
     [switch]$SkipDependencyInstall,
     [switch]$PackageOnly
 )
@@ -103,9 +103,6 @@ if (-not (Test-Path $Python)) {
 
 if (-not $SkipDependencyInstall) {
     Set-BuildStage "Installing Python dependencies"
-    & $Python -m pip install --upgrade pip
-    if ($LASTEXITCODE -ne 0) { throw "Failed to upgrade pip." }
-
     # Install everything except argostranslate, then install argostranslate with
     # --no-deps so its stanza(->torch) requirement is skipped. torch (~1 GB, plus
     # CUDA on some platforms) is never used at runtime: sentence segmentation goes
@@ -121,9 +118,6 @@ if (-not $SkipDependencyInstall) {
     & $Python -m pip install --no-deps argostranslate
     if ($LASTEXITCODE -ne 0) { throw "Failed to install argostranslate." }
 
-    & $Python -m pip install --prefer-binary -r (Join-Path $BundleRoot "requirements-desktop.txt")
-    if ($LASTEXITCODE -ne 0) { throw "Failed to install desktop dependencies." }
-
     # Replace any real stanza with the torch-free stub.
     $SitePackages = & $Python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])"
     if ($LASTEXITCODE -ne 0) { throw "Failed to resolve site-packages path." }
@@ -134,11 +128,13 @@ if (-not $SkipDependencyInstall) {
 
 Set-BuildStage "Checking desktop dependencies"
 
-# Repair desktop dependencies when upgrading an older build environment.
-& $Python -c "import importlib.util, sys; sys.exit(not all(importlib.util.find_spec(name) for name in ('webview', 'distlib')))"
-if ($LASTEXITCODE -ne 0) {
-    & $Python -m pip install --prefer-binary -r (Join-Path $BundleRoot "requirements-desktop.txt")
-    if ($LASTEXITCODE -ne 0) { throw "Failed to install desktop dependencies." }
+$DesktopRequirements = Join-Path $BundleRoot "requirements-desktop.txt"
+$DesktopHash = (Get-FileHash $DesktopRequirements -Algorithm SHA256).Hash
+$DesktopStamp = Join-Path $BuildRoot "desktop-requirements.sha256"
+if (-not (Test-Path $DesktopStamp) -or (Get-Content $DesktopStamp -Raw).Trim() -ne $DesktopHash) {
+    & $Python -m pip install --only-binary=:all: -r $DesktopRequirements
+    if ($LASTEXITCODE -ne 0) { throw "Failed to install bundled browser dependencies." }
+    Set-Content -Path $DesktopStamp -Value $DesktopHash
 }
 
 Set-BuildStage "Staging Python runtime and sources"
@@ -146,14 +142,16 @@ Set-BuildStage "Staging Python runtime and sources"
 # Copy the existing Python runtime and readable sources. No freezing or C build.
 & $Python -u (Join-Path $BundleRoot "package_backend.py") $BackendRoot (Join-Path $BackendBuild "dict-backend") | Out-Host
 if ($LASTEXITCODE -ne 0) { throw "Backend staging failed." }
+Set-BuildStage "Checking bundled DLL and browser dependencies"
+& $Python -u (Join-Path $BundleRoot "runtime_audit.py") (Join-Path $BackendBuild "dict-backend") | Out-Host
+if ($LASTEXITCODE -ne 0) { throw "Portable dependency audit failed." }
+Set-BuildStage "Testing isolated bundled Python imports"
+& (Join-Path $BackendBuild "dict-backend/python.exe") -I -c "import sys; from pathlib import Path; root=Path(sys.executable).resolve().parent; assert sys.flags.isolated and Path(sys.prefix).resolve()==root; import sqlmodel, spacy, ctranslate2, PySide6.QtWebEngineWidgets; assert all(Path(m.__file__).resolve().is_relative_to(root) for m in (sqlmodel, spacy, ctranslate2, PySide6)); print('Isolated portable imports OK')" | Out-Host
+if ($LASTEXITCODE -ne 0) { throw "Portable Python import check failed." }
 
 }
 
-Set-BuildStage "Preparing clean portable directory"
-
-if (Test-Path $PortableRoot) {
-    Remove-Item -Recurse -Force $PortableRoot
-}
+Set-BuildStage "Updating portable directory (reuse unchanged files)"
 New-Item -ItemType Directory -Force $DistRoot, $ResourcesRoot, $DataRoot | Out-Null
 
 $DesktopExe = Join-Path $BackendBuild "LanguageTrainer.exe"
@@ -164,14 +162,48 @@ if (-not (Test-Path (Join-Path $BackendDist "python.exe"))) { throw "Backend sta
 $PackagingPython = $Python
 if (-not (Test-Path $PackagingPython)) { $PackagingPython = Join-Path $BackendDist "python.exe" }
 $ProgressHelper = Join-Path $BundleRoot "package_progress.py"
-function Copy-PackageTree([string]$Source, [string]$Destination) {
-    & $PackagingPython -u $ProgressHelper copy $Source $Destination | Out-Host
+function Copy-PackageTree([string]$Source, [string]$Destination, [switch]$Runtime) {
+    $CopyArguments = @("-u", $ProgressHelper, "copy", $Source, $Destination)
+    if ($Runtime) { $CopyArguments += "--runtime" }
+    & $PackagingPython @CopyArguments | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "Copy failed: $Source -> $Destination" }
 }
 
-Set-BuildStage "Copying Python into portable application"
+Set-BuildStage "Reusing prepared Python runtime"
+# Refresh only application code; PackageOnly reuses the already prepared runtime.
+if ($PackageOnly) {
+    Set-BuildStage "Refreshing application sources only"
+    foreach ($Name in @("dict.py", "get_sounds.py", "lookup_parse.py", "translate.py")) {
+        Copy-Item -Force (Join-Path $BackendRoot $Name) (Join-Path $BackendDist $Name)
+    }
+    Copy-Item -Force (Join-Path $BundleRoot "desktop.py") (Join-Path $BackendDist "desktop.py")
+    Copy-PackageTree (Join-Path $BackendRoot "dictapp") (Join-Path $BackendDist "dictapp") -Runtime
+}
 Copy-Item $DesktopExe (Join-Path $PortableRoot "LanguageTrainer.exe")
-Copy-PackageTree $BackendDist (Join-Path $PortableRoot "backend")
+$PortableBackend = Join-Path $PortableRoot "backend"
+if ((Test-Path $PortableBackend) -and -not ((Get-Item $PortableBackend -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+    # Renaming a previous partial copy on the same volume avoids deleting or
+    # recopying thousands of files. Keep it outside the release archive.
+    $PreviousBackend = Join-Path $BuildRoot ("previous-staging-backend-" + [Guid]::NewGuid().ToString("N"))
+    Move-Item -LiteralPath $PortableBackend -Destination $PreviousBackend
+    Write-Host "Previous partial staging copy retained at $PreviousBackend"
+}
+if (-not (Test-Path $PortableBackend)) {
+    try {
+        New-Item -ItemType Junction -Path $PortableBackend -Target $BackendDist -ErrorAction Stop | Out-Null
+        Write-Host "Reusing prepared runtime through a staging junction; no second runtime copy." -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "Staging junction unavailable; using incremental native copy."
+        Copy-PackageTree $BackendDist $PortableBackend -Runtime
+    }
+}
+elseif ((Get-Item $PortableBackend -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+    Write-Host "Reusing staged runtime junction." -ForegroundColor Green
+}
+else {
+    Copy-PackageTree $BackendDist $PortableBackend -Runtime
+}
 
 Set-BuildStage "Copying dictionaries, audio, books and interface"
 $RequiredResources = @(
@@ -200,6 +232,34 @@ if (-not (Test-Path (Join-Path $NltkSeed "corpora/wordnet.zip"))) {
     throw "Bundled WordNet data not found: seed_data/nltk_data/corpora/wordnet.zip"
 }
 Copy-PackageTree $NltkSeed (Join-Path $ResourcesRoot "nltk_data")
+
+Set-BuildStage "Testing bundled browser, backend and interface"
+$SmokeData = Join-Path $BuildRoot ("startup-check-" + [Guid]::NewGuid().ToString("N"))
+$PreviousRoot = $env:DICT_PORTABLE_ROOT
+$PreviousData = $env:DICT_DESKTOP_DATA_DIR
+$PreviousPlatform = $env:QT_QPA_PLATFORM
+try {
+    $env:DICT_PORTABLE_ROOT = $PortableRoot
+    $env:DICT_DESKTOP_DATA_DIR = $SmokeData
+    $env:QT_QPA_PLATFORM = "offscreen"
+    $SmokeProcess = Start-Process -FilePath (Join-Path $PortableRoot "LanguageTrainer.exe") -ArgumentList @("--smoke-test") -PassThru -NoNewWindow
+    $null = $SmokeProcess.Handle
+    if (-not $SmokeProcess.WaitForExit(180000)) {
+        & taskkill /PID $SmokeProcess.Id /T /F | Out-Host
+        throw "Desktop startup test timed out. Log: $SmokeData/desktop.log"
+    }
+    if ($SmokeProcess.ExitCode -ne 0) {
+        if (Test-Path (Join-Path $SmokeData "desktop.log")) { Get-Content (Join-Path $SmokeData "desktop.log") -Tail 40 | Out-Host }
+        throw "Desktop startup test failed. Log: $SmokeData/desktop.log"
+    }
+    if (-not (Select-String -Path (Join-Path $SmokeData "desktop.log") -SimpleMatch "Application ready" -Quiet)) { throw "Launcher exited without confirming interface readiness. Log: $SmokeData/desktop.log" }
+    Write-Host "Bundled browser, backend health check and interface startup OK" -ForegroundColor Green
+}
+finally {
+    $env:DICT_PORTABLE_ROOT = $PreviousRoot
+    $env:DICT_DESKTOP_DATA_DIR = $PreviousData
+    $env:QT_QPA_PLATFORM = $PreviousPlatform
+}
 
 $Archive = Join-Path $DistRoot "$PortableName.zip"
 if (Test-Path $Archive) { Remove-Item -Force $Archive }

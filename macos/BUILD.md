@@ -22,7 +22,7 @@ Open a new terminal in this directory (so `PATH` picks up `cargo`) and run:
 The script creates a Python virtual environment, packages the backend with PyInstaller, builds the Tauri shell, ad-hoc code-signs every binary, and creates:
 
 ```text
-dist/LanguageTrainer-macos-<arch>-0.4.2.zip
+dist/LanguageTrainer-macos-<arch>-0.5.0.zip
 ```
 
 The ZIP is the application distribution. Unzip it without changing its internal layout and run `LanguageTrainer`. Python, Docker, Node.js, and Rust are not required on the target computer.
@@ -44,7 +44,7 @@ To skip dependency installation on a rebuild (venv + npm already populated):
 - **Gatekeeper / quarantine.** The binaries are ad-hoc signed (no Apple Developer certificate), which is enough to run locally on the machine that built them. If you copy the ZIP to another Mac and it is blocked as "damaged" or "from an unidentified developer", clear the download quarantine flag once after unzipping:
 
   ```bash
-  xattr -dr com.apple.quarantine "LanguageTrainer-macos-<arch>-0.4.2"
+  xattr -dr com.apple.quarantine "LanguageTrainer-macos-<arch>-0.5.0"
   ```
 
 - **Packaging is non-destructive.** Packaging stages into `.build/package` and zips into `dist/`; it never touches an installed application's `data` directory, so a user database cannot be damaged by a rebuild.

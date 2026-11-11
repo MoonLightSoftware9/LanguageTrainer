@@ -30,7 +30,7 @@ Persistent application data is stored in the Docker volume `dict-data`.
 Set the image name:
 
 ```powershell
-$IMAGE = "YOUR_DOCKERHUB_USERNAME/dict:0.4.2"
+$IMAGE = "YOUR_DOCKERHUB_USERNAME/dict:0.5.0"
 
 Pull the image and create persistent storage:
 
@@ -66,7 +66,7 @@ Open http://localhost:8000 in your browser.
 
 Set the image name:
 
-IMAGE="YOUR_DOCKERHUB_USERNAME/dict:0.4.2"
+IMAGE="YOUR_DOCKERHUB_USERNAME/dict:0.5.0"
 
 Pull the image and create persistent storage:
 
@@ -102,7 +102,7 @@ Open http://localhost:8000 in your browser.
 
 Set the image name:
 
-IMAGE="YOUR_DOCKERHUB_USERNAME/dict:0.4.2"
+IMAGE="YOUR_DOCKERHUB_USERNAME/dict:0.5.0"
 
 Pull the image and create persistent storage:
 
@@ -164,7 +164,7 @@ Your database, settings, and translation model remain stored in dict-data.
 
 Pull a newer image:
 
-docker pull YOUR_DOCKERHUB_USERNAME/dict:0.4.2
+docker pull YOUR_DOCKERHUB_USERNAME/dict:0.5.0
 docker rm -f dict
 
 Then repeat the start command for your operating system. The existing dict-data volume will be reused automatically.
@@ -184,4 +184,4 @@ docker volume rm dict-data
 - /app/docs/manual/README.md — built-in English documentation
 - /app/docs/manual/README.ru.md — built-in Russian documentation
 
-Image version: 0.4.2
+Image version: 0.5.0

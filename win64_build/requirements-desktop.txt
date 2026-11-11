@@ -1,2 +1,4 @@
-pywebview>=6,<7
+PySide6==6.10.3
 distlib>=0.4,<1
+pefile>=2024.8.26
+msvc-runtime==14.51.36231

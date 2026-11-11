@@ -26,7 +26,7 @@ cd win64_build
 Соберите образ:
 
 ```bash
-docker build -t languagetrainer:0.4.2 .
+docker build -t languagetrainer:0.5.0 .
 ```
 
 Запустите его с постоянным каталогом данных:
@@ -36,7 +36,7 @@ mkdir -p data
 docker run --rm -it \
   -p 8000:8000 \
   -v "$PWD/data:/data" \
-  languagetrainer:0.4.2
+  languagetrainer:0.5.0
 ```
 
 Откройте `http://127.0.0.1:8000/`. База и настройки находятся в подключённом каталоге `/data`.
@@ -115,4 +115,4 @@ python3 -m venv .venv
 
 Версия приложения задаётся константой `APP_VERSION` в `dict.py`. Обновляйте её штатной командой проекта, проверяйте `--version`, заново собирайте `win64_build` и создавайте тег с тем же номером. Не редактируйте сгенерированный Windows-каталог как исходный код.
 
-В Windows окно приложения использует pywebview и системный WebView2. Упаковка копирует Python и исходники и добавляет готовый EXE-запускатель; Rust, Node.js и C++ Build Tools больше не нужны.
+В Windows окно приложения использует включённый в ZIP Qt WebEngine. Упаковка копирует Python и исходники и добавляет готовый EXE-запускатель; Rust, Node.js и C++ Build Tools больше не нужны. Python, браузерный движок и библиотеки C++ Runtime входят в ZIP; WebView2 и .NET не требуются. При упаковке проверяются DLL и импорт из изолированного Python.

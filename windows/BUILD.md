@@ -2,7 +2,7 @@
 
 On Linux, run `./prepare_win64_build.sh` and copy `win64_build` to Windows.
 
-Python 3.12 is the only packaging tool. The application uses Microsoft Edge WebView2 Runtime for its window. To install or update both:
+Python 3.12 is the only packaging tool. The package includes Python, Qt WebEngine (Chromium), and the Microsoft C++ runtime DLLs. To install or update Python:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
@@ -15,9 +15,9 @@ Open a new PowerShell in the same directory and package the application:
 ./build.ps1
 ```
 
-The script installs Python dependencies, copies the runtime and sources, adds a prebuilt GUI launcher, and creates `dist/LanguageTrainer-windows-x64-0.4.2.zip`. No Rust, Node.js, Visual Studio, or source compilation is involved.
+The script installs Python dependencies, copies the runtime and sources, adds a prebuilt GUI launcher, and creates `dist/LanguageTrainer-windows-x64-0.5.0.zip`. No Rust, Node.js, Visual Studio, or source compilation is involved.
 
-Extract the ZIP and open `LanguageTrainer.exe`. The target PC needs WebView2 Runtime; it does not need Python installed. Progress, settings, and translation models stay in `data`.
+Extract the ZIP and open `LanguageTrainer.exe`. The target PC needs Windows 10/11 x64. It does not need Python, WebView2, .NET, or Visual C++ Redistributable installed. Progress, settings, and translation models stay in `data`.
 
 For a subsequent package with existing dependencies:
 
@@ -31,7 +31,7 @@ To repeat only final assembly and ZIP creation:
 ./build.ps1 -PackageOnly
 ```
 
-Staging uses `.build/package/LanguageTrainer-windows-x64-0.4.2`. Existing application data is preserved. ZIP uses fast compression. First-time downloads still depend on network speed.
+Staging uses `.build/package/LanguageTrainer-windows-x64-0.5.0`. Existing application data is preserved. ZIP uses fast compression. First-time downloads still depend on network speed. Qt includes the browser engine, so the archive is larger than the earlier system-WebView2 package.
 
 ## Sync code updates from WSL
 
@@ -56,3 +56,13 @@ To watch the log from another PowerShell window:
 ```powershell
 Get-Content .build/build.log -Tail 30 -Wait
 ```
+
+## Startup checks
+
+The launcher shows native startup status until the backend health check and Vue interface are ready. Failures and timeouts show an error page with the last backend output and an Open log folder button. `data/desktop.log` includes Qt and JavaScript messages. Software browser rendering is enabled to avoid GPU-driver blank screens.
+
+Packaging checks PE imports for unbundled non-Windows DLLs, verifies Qt browser resources, imports critical modules using the isolated bundled interpreter, and starts the bundled browser/backend/interface offscreen before ZIP creation. A package whose startup check fails is not archived. `python312._pth` prevents fallback to an installed Python or user site packages. The EXE launcher is tested from a fresh interpreter without packaging modules available.
+
+Runtime staging uses Windows robocopy with 16 workers and reuses unchanged files. Python tests, IDLE, QML, Qt SDK headers and type stubs are excluded before traversal. The final staging directory links to the prepared runtime through an NTFS junction; ZIP creation reads its files directly instead of copying the runtime a second time. ZIP entries contain actual files, not junctions. On filesystems without junction support, staging falls back to incremental robocopy.
+
+`-PackageOnly` refreshes application source files and assembles the existing runtime without dependency installation or repeating the runtime copy.

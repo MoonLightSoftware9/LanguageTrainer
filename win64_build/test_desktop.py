@@ -69,53 +69,43 @@ class LauncherTests(unittest.TestCase):
 
 
 class DesktopTests(unittest.TestCase):
-    def run_desktop(self, mode):
-        urls, errors, processes = [], [], []
-        class Event:
-            callback = None
-            def __iadd__(self, callback):
-                self.callback = callback
-                return self
-        event = Event()
-        window = types.SimpleNamespace(events=types.SimpleNamespace(closed=event), load_url=urls.append, load_html=errors.append)
-        def spawn(*args, **kwargs):
-            if mode == 'error':
-                raise OSError('backend missing')
-            process = Mock()
-            process.poll.return_value = None
-            def output():
-                yield 'DICT_SERVER_READY {"url":"http://127.0.0.1:43210/"}\n'
-                event.callback()
-            process.stdout = output()
-            processes.append((process, args, kwargs))
-            return process
-        def start(function, **kwargs):
-            self.assertEqual(kwargs['gui'], 'edgechromium')
-            if mode == 'close_before_start':
-                event.callback()
-            function()
-        fake = types.SimpleNamespace(create_window=lambda *a, **kw: window, start=start)
-        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, DICT_PORTABLE_ROOT=folder), patch.dict(sys.modules, webview=fake), patch.object(desktop.subprocess, 'Popen', side_effect=spawn), patch.object(sys, 'stdout', io.StringIO()), patch.object(sys, 'stderr', io.StringIO()):
-            self.assertEqual(desktop.main(), 0)
+    def test_browser_readiness_uses_serialized_json(self):
+        self.assertTrue(desktop.parse_page_state('{"ready":true,"error":""}')['ready'])
+        self.assertEqual(desktop.parse_page_state(None), {})
+        self.assertEqual(desktop.parse_page_state('undefined'), {})
+        self.assertEqual(desktop.parse_page_state('{"error":"script failed"}')['error'], 'script failed')
+
+    def test_browser_uses_bundled_engine_and_software_rendering(self):
+        with patch.dict(os.environ, {'QT_PLUGIN_PATH': 'external-install'}, clear=True):
+            desktop.configure_browser()
+            self.assertNotIn('QT_PLUGIN_PATH', os.environ)
+            self.assertIn('--disable-gpu', os.environ['QTWEBENGINE_CHROMIUM_FLAGS'])
+            self.assertEqual(os.environ['QT_QUICK_BACKEND'], 'software')
+
+    def test_launcher_bootstrap_runs_in_fresh_isolated_interpreter(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / 'Folder with spaces'
+            (root / 'backend').mkdir(parents=True)
+            (root / 'backend/desktop.py').write_text('def main(): return 0\n')
+            executable = root / 'LanguageTrainer.exe'
+            packager.make_launcher(executable)
+            code = "import sys,zipfile; path=sys.argv[1]; sys.argv=[path]; exec(zipfile.ZipFile(path).read('__main__.py'))"
+            result = subprocess.run([sys.executable, '-I', '-c', code, str(executable)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_native_launch_errors_are_logged(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, DICT_PORTABLE_ROOT=folder), patch.object(desktop, 'run_window', side_effect=RuntimeError('missing browser file')), patch.object(sys, 'stdout', io.StringIO()), patch.object(sys, 'stderr', io.StringIO()), patch.object(sys, 'platform', 'linux'):
+            self.assertEqual(desktop.main(), 1)
             sys.stdout.close()
-        return urls, errors, processes
+            self.assertIn('missing browser file', (Path(folder) / 'data/desktop.log').read_text())
 
-    def test_readiness_and_close_terminate_backend(self):
-        urls, errors, processes = self.run_desktop('normal')
-        self.assertEqual(urls, ['http://127.0.0.1:43210/'])
-        self.assertEqual(errors, [])
-        process, args, kwargs = processes[0]
-        process.terminate.assert_called()
-        self.assertIn('--port', args[0])
-        self.assertEqual(kwargs['env']['PYTHONUNBUFFERED'], '1')
-
-    def test_startup_failure_is_visible(self):
-        urls, errors, processes = self.run_desktop('error')
-        self.assertEqual(urls, [])
-        self.assertIn('backend missing', errors[0])
-
-    def test_closed_window_does_not_launch_backend(self):
-        self.assertEqual(self.run_desktop('close_before_start'), ([], [], []))
+    def test_runtime_allowlist_rejects_external_frameworks_and_cpp_runtime(self):
+        audit = load('audit_checks', 'runtime_audit.py')
+        for name in ('kernel32.dll', 'ucrtbase.dll', 'api-ms-win-core-file-l1-1-0.dll'):
+            self.assertTrue(audit.windows_dependency(name), name)
+        for name in ('msvcp140.dll', 'vcruntime140.dll', 'WebView2Loader.dll', 'mscoree.dll', 'Qt6WebEngineCore.dll'):
+            self.assertFalse(audit.windows_dependency(name), name)
 
 
 if __name__ == '__main__':

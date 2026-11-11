@@ -1,7 +1,7 @@
 ARG PYTHON_VERSION=3.12
 FROM python:${PYTHON_VERSION}-slim
 
-ARG APP_VERSION=0.4.2
+ARG APP_VERSION=0.5.0
 LABEL org.opencontainers.image.title="dict" \
       org.opencontainers.image.version="${APP_VERSION}"
 

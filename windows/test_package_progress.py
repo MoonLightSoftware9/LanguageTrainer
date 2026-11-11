@@ -38,6 +38,26 @@ class PackagingProgressTests(unittest.TestCase):
             self.assertIn('2/2 files', output.getvalue())
             self.assertIn('[ZIP]', output.getvalue())
 
+    def test_runtime_exclusions_happen_before_copy_and_unchanged_files_are_reused(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source, target = root / 'source', root / 'target'
+            for name in ('test/test_ssl.py', 'idlelib/main.py', 'PySide6/qml/Foo.qml', 'PySide6/include/api.h', 'PySide6/QtCore.pyi', 'PySide6/resources/qtwebengine_resources.pak', 'spacy/language.py'):
+                path = source / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(name)
+            with redirect_stdout(io.StringIO()):
+                progress.copy_tree(source, target, runtime=True)
+                before = (target / 'spacy/language.py').stat().st_mtime_ns
+                progress.copy_tree(source, target, runtime=True)
+            self.assertEqual((target / 'spacy/language.py').stat().st_mtime_ns, before)
+            self.assertFalse((target / 'test').exists())
+            self.assertFalse((target / 'idlelib').exists())
+            self.assertFalse((target / 'PySide6/qml').exists())
+            self.assertFalse((target / 'PySide6/include').exists())
+            self.assertFalse((target / 'PySide6/QtCore.pyi').exists())
+            self.assertTrue((target / 'PySide6/resources/qtwebengine_resources.pak').exists())
+
     def test_missing_directory_and_recursive_output_are_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

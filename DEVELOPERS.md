@@ -26,7 +26,7 @@ The result contains the desktop executable, backend, static English and Russian 
 Build the image:
 
 ```bash
-docker build -t languagetrainer:0.4.2 .
+docker build -t languagetrainer:0.5.0 .
 ```
 
 Run it with persistent data:
@@ -36,7 +36,7 @@ mkdir -p data
 docker run --rm -it \
   -p 8000:8000 \
   -v "$PWD/data:/data" \
-  languagetrainer:0.4.2
+  languagetrainer:0.5.0
 ```
 
 Open `http://127.0.0.1:8000/`. The `/data` mount contains the database and settings.
@@ -117,7 +117,7 @@ The application version is defined by `APP_VERSION` in `dict.py`. Update it with
 
 ## Public snapshot
 
-This directory is a standalone source snapshot of version 0.4.2. It includes `win64_build` with all offline inputs and `prepare_win64_build.sh` to regenerate it. User databases, settings, build caches, and the original Git history are excluded.
+This directory is a standalone source snapshot of version 0.5.0. It includes `win64_build` with all offline inputs and `prepare_win64_build.sh` to regenerate it. User databases, settings, build caches, and the original Git history are excluded.
 
 Install Git LFS before adding files to a new repository. `.gitattributes` tracks the large dictionary, audio, and model files with LFS. Initialize Git here and make the initial commit; no previous history is included.
 
@@ -127,4 +127,4 @@ The supplied `data/argos-translate` and `data/nltk_data` contain only bundled of
 
 English and Russian are enabled. Greek (`CY` / `EL`) is hidden from language choices and collection lists, and its database is omitted from desktop and Docker packages. Existing Greek collections are preserved. To enable them in a source installation, set `DICT_ENABLE_GREEK=1` and restore `elru.db` in the project root.
 
-The Windows backend uses a copied Python 3.12 runtime with ordinary `.py` sources. The desktop window uses pywebview and the system WebView2 runtime. A prebuilt distlib launcher starts the bundled Python through a path relative to the executable. No Python freezing, Rust, Node.js, or C++ toolchain is needed for Windows packaging. macOS uses PyInstaller for runtime packaging.
+The Windows backend uses a copied Python 3.12 runtime with ordinary `.py` sources. The desktop window uses bundled Qt WebEngine, with software rendering and native startup/error status. A prebuilt distlib launcher starts the bundled Python through a path relative to the executable. No Python freezing, Rust, Node.js, or C++ toolchain is needed for Windows packaging. Python, the browser engine, and C++ runtime DLLs are included; neither WebView2 nor .NET is required on the target PC. Packaging audits native dependencies and verifies isolated imports. macOS uses PyInstaller for runtime packaging.

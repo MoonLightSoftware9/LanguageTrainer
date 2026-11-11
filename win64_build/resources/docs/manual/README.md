@@ -6,7 +6,7 @@ The application is designed for continuous work. You stay inside the same book, 
 
 The goal is not to loop over the same list forever. The goal is to keep moving through meaningful text while difficult material is postponed, revisited, understood, and eventually removed from active study.
 
-Current application version: `0.4.2`.
+Current application version: `0.5.0`.
 
 Each new user starts with three vocabulary lists and two books: *Zen* and *Thinking, Fast and Slow*. Existing users receive the second book once; existing copies and reading progress are preserved.
 
@@ -159,4 +159,4 @@ The linked dictionary is important: vocabulary remains connected to the text whe
 
 Settings are stored in `user_settings.json`. Existing values are preserved when the application is upgraded; newly introduced fields are added with defaults. Collection selections, strict typing, screen keyboard, random quotations, chunk sizes, run sizes, and Reminder intervals are user-specific.
 
-An old `0.4.2` database is upgraded on startup. The application adds the `word.in_sprint` field and initializes it without placing learned or relic words into Sprint. Back up `dict.sqlite3` before any release upgrade even though migrations are automatic.
+An old `0.5.0` database is upgraded on startup. The application adds the `word.in_sprint` field and initializes it without placing learned or relic words into Sprint. Back up `dict.sqlite3` before any release upgrade even though migrations are automatic.

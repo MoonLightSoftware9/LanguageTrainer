@@ -6,15 +6,23 @@
   <title>Typing Text</title>
   <script src="/vendor/vue/vue.global.prod.js"></script>
   <script>
+    window.__LANGUAGE_TRAINER_READY__ = false;
+    window.__LANGUAGE_TRAINER_BOOT_ERROR__ = "";
+    function showBootError(message) {
+      if (window.__LANGUAGE_TRAINER_READY__) return;
+      window.__LANGUAGE_TRAINER_BOOT_ERROR__ = String(message);
+      document.body?.classList.add("missing-runtime");
+      const target = document.getElementById("runtime-error");
+      if (target) { target.hidden = false; target.textContent = "LanguageTrainer could not start: " + message; }
+    }
+    window.addEventListener("error", event => showBootError(event.message || "A local script could not be loaded"));
+    window.addEventListener("unhandledrejection", event => showBootError(event.reason?.message || event.reason || "Unknown interface error"));
     window.addEventListener("DOMContentLoaded", () => {
-      if (window.Vue) {
-        return;
-      }
-      document.body.classList.add("missing-runtime");
-      const message = document.getElementById("runtime-error");
-      if (message) {
-        message.hidden = false;
-      }
+      if (!window.Vue) showBootError("The bundled Vue runtime is missing. Extract the complete application ZIP again.");
+      if (window.__LANGUAGE_TRAINER_BOOT_ERROR__) showBootError(window.__LANGUAGE_TRAINER_BOOT_ERROR__);
+      window.setTimeout(() => {
+        if (!window.__LANGUAGE_TRAINER_READY__) showBootError("The interface did not initialize. See data/desktop.log.");
+      }, 15000);
     });
   </script>
   <style>
@@ -2444,7 +2452,7 @@
 </head>
 <body>
   <div id="runtime-error" class="runtime-error" hidden>
-    Local Vue runtime is missing. Run <code>./dict.py control --update</code> and restart the server.
+    The bundled interface could not start. See <code>data/desktop.log</code> next to the application.
   </div>
   <main id="app" class="app" v-cloak>
     <aside v-if="debugEnabled" class="debug-timing-panel" aria-label="Request timing diagnostics">
@@ -2522,8 +2530,8 @@
       </button>
     </section>
 
+    <div v-if="error" class="error">{{ error }}</div>
     <div v-if="loading" class="loading">Loading text...</div>
-    <div v-else-if="error" class="error">{{ error }}</div>
     <template v-else-if="!currentUserId"></template>
     <template v-else>
       <section class="collections-panel" aria-label="Collections">
@@ -4850,6 +4858,7 @@
         },
       },
       async mounted() {
+        window.__LANGUAGE_TRAINER_READY__ = true;
         this.installDebugFetch();
         const loadInitial = async () => {
           const usersResponse = await fetch("/api/users");

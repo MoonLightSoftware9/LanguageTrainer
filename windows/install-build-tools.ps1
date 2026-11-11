@@ -44,9 +44,5 @@ Install-WingetPackage -Name "Python 3.12" -Arguments @(
     "--override", "/quiet InstallAllUsers=0 PrependPath=1 Include_launcher=1 InstallLauncherAllUsers=0"
 )
 
-Install-WingetPackage -Name "Microsoft Edge WebView2 Runtime" -Arguments @(
-    "--exact", "--id", "Microsoft.EdgeWebView2Runtime"
-)
-
 Write-Host "Build tools installation completed." -ForegroundColor Green
 Write-Host "Open a new PowerShell window in win64_build, then run ./build.ps1"

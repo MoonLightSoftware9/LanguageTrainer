@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-VERSION="0.4.2"
+VERSION="0.5.0"
 SKIP_DEPENDENCY_INSTALL=0
 PACKAGE_ONLY=0
 
